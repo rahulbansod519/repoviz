@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pip install:*)",
+      "Bash(python3:*)",
+      "Bash(python -m repoviz --help)",
+      "Bash(git:*)",
+      "Bash(python:*)",
+      "Bash(pytest:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//Users/rahulbansod01/Projects/demo/**)",
+      "Bash(done)",
+      "Bash(/opt/homebrew/opt/python@3.11/bin/python3.11 -m pip install openai -q)",
+      "Bash(/opt/homebrew/opt/python@3.11/bin/python3.11 -m pytest tests/test_renderer.py -k \"test_md\" -v)",
+      "Bash(/usr/local/bin/python3 -m pytest tests/test_renderer.py -v)",
+      "Bash(/usr/local/bin/python3 -m pytest tests/test_renderer.py::test_write_markdown_skips_when_empty -v -s)",
+      "Bash(/usr/local/bin/python3 -m pytest tests/test_renderer.py::test_write_markdown_creates_file -v -s)",
+      "Bash(/usr/local/bin/python3 -m pytest tests/test_renderer.py::test_render_html_contains_explanation -v -s)",
+      "Bash(/usr/local/bin/python3 -m pytest tests/test_renderer.py -v --tb=short)",
+      "Bash(repoviz --help)",
+      "Bash(pip3 install:*)",
+      "Bash(/Library/Frameworks/Python.framework/Versions/3.12/bin/repoviz --help 2>&1)",
+      "Bash(/Library/Frameworks/Python.framework/Versions/3.12/bin/repoviz /Users/rahulbansod01/Projects/demo --no-ai -o /tmp/demo-report.html 2>&1)",
+      "Read(//private/tmp/**)"
+    ]
+  }
+}
