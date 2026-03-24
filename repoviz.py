@@ -298,7 +298,59 @@ def call_openai(repo_summary: dict) -> dict:
 
 
 def md_to_html(text: str) -> str:
-    raise NotImplementedError
+    """Convert a markdown subset to HTML using a two-pass approach."""
+    if not text:
+        return ""
+
+    # Pass 1: classify each line
+    classified: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            classified.append(("blank", ""))
+        elif s.startswith("## "):
+            classified.append(("h2", s[3:]))
+        elif s.startswith("# "):
+            classified.append(("h1", s[2:]))
+        elif re.match(r"^\d+\.\s", s):
+            classified.append(("li_ol", re.sub(r"^\d+\.\s+", "", s)))
+        elif s.startswith(("- ", "* ")):
+            classified.append(("li_ul", s[2:]))
+        else:
+            classified.append(("p", s))
+
+    # Pass 2: emit HTML with inline transforms
+    def inline(t: str) -> str:
+        t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+        t = re.sub(r"`(.+?)`", r"<code>\1</code>", t)
+        return t
+
+    parts: list[str] = []
+    i = 0
+    while i < len(classified):
+        kind, content = classified[i]
+        if kind == "blank":
+            i += 1
+        elif kind in ("h1", "h2"):
+            parts.append(f"<{kind}>{inline(content)}</{kind}>")
+            i += 1
+        elif kind == "li_ol":
+            items = []
+            while i < len(classified) and classified[i][0] == "li_ol":
+                items.append(f"<li>{inline(classified[i][1])}</li>")
+                i += 1
+            parts.append("<ol>" + "".join(items) + "</ol>")
+        elif kind == "li_ul":
+            items = []
+            while i < len(classified) and classified[i][0] == "li_ul":
+                items.append(f"<li>{inline(classified[i][1])}</li>")
+                i += 1
+            parts.append("<ul>" + "".join(items) + "</ul>")
+        else:
+            parts.append(f"<p>{inline(content)}</p>")
+            i += 1
+
+    return "\n".join(parts)
 
 
 def render_html(tree_data: dict, graph_data: dict, ai_result: dict, output_path: Path) -> None:
