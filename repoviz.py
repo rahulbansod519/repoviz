@@ -116,6 +116,89 @@ def _build_summary(repo_path: Path, all_files: list[Path], graph_files: list[Pat
 
 
 def analyze_imports(graph_files: list[Path], repo_root: Path) -> dict:
+    """Extract intra-repo import edges from recognized language files."""
+    nodes = []
+    links = []
+    seen_links: set[tuple[str, str]] = set()
+
+    for file_path in graph_files:
+        rel = str(file_path.relative_to(repo_root))
+        lang = LANG_EXTENSIONS[file_path.suffix]
+        nodes.append({"id": rel, "language": lang})
+
+        try:
+            source = file_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"Warning: skipping {rel} — {type(e).__name__}", file=sys.stderr)
+            continue
+
+        for target in _extract_imports(file_path, source, repo_root):
+            pair = (rel, target)
+            if pair not in seen_links:
+                seen_links.add(pair)
+                links.append({"source": rel, "target": target})
+
+    return {"nodes": nodes, "links": links}
+
+
+def _extract_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
+    ext = file_path.suffix
+    if ext == ".py":
+        return _python_imports(file_path, source, repo_root)
+    if ext in (".js", ".jsx", ".ts", ".tsx"):
+        return _js_imports(file_path, source, repo_root)
+    if ext == ".go":
+        return _go_imports(file_path, source, repo_root)
+    if ext == ".java":
+        return _java_imports(file_path, source, repo_root)
+    if ext == ".rb":
+        return _ruby_imports(file_path, source, repo_root)
+    return []
+
+
+def _resolve_python_module(module: str, repo_root: Path) -> str | None:
+    """Resolve dotted module name to relative file path. Returns None if not found."""
+    parts = module.split(".")
+    pkg_path = Path(*parts)
+    for candidate in (
+        repo_root / pkg_path / "__init__.py",
+        repo_root / pkg_path.parent / (pkg_path.name + ".py"),
+    ):
+        if candidate.exists():
+            return str(candidate.relative_to(repo_root))
+    return None
+
+
+def _python_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
+    results = []
+    for m in re.finditer(r"^\s*import\s+([\w.]+)", source, re.MULTILINE):
+        t = _resolve_python_module(m.group(1), repo_root)
+        if t:
+            results.append(t)
+    for m in re.finditer(r"^\s*from\s+([\w.]+)\s+import\s+", source, re.MULTILINE):
+        t = _resolve_python_module(m.group(1), repo_root)
+        if t:
+            results.append(t)
+    return results
+
+
+def _js_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
+    raise NotImplementedError
+
+
+def _go_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
+    raise NotImplementedError
+
+
+def _detect_java_root_package(repo_root: Path) -> str:
+    raise NotImplementedError
+
+
+def _java_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
+    raise NotImplementedError
+
+
+def _ruby_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
     raise NotImplementedError
 
 
