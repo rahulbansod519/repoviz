@@ -353,12 +353,160 @@ def md_to_html(text: str) -> str:
     return "\n".join(parts)
 
 
-def render_html(tree_data: dict, graph_data: dict, ai_result: dict, output_path: Path) -> None:
-    raise NotImplementedError
+_HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>__REPO_NAME__ — repoviz</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    body{font-family:system-ui,sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#1a1a1a}
+    h1{font-size:1.5rem;color:#1a1a2e;margin-top:0}
+    .tabs{display:flex;gap:8px;margin-bottom:16px}
+    .tab-btn{padding:8px 16px;border:1px solid #ccc;background:#fff;cursor:pointer;border-radius:4px;font-size:.9rem}
+    .tab-btn.active{background:#1a1a2e;color:#fff;border-color:#1a1a2e}
+    .view{display:none}.view.active{display:block}
+    #tree-svg,#graph-svg{width:100%;height:600px;border:1px solid #e0e0e0;background:#fff;border-radius:4px;display:block}
+    .section{margin-top:24px;background:#fff;padding:20px;border-radius:4px;border:1px solid #e0e0e0}
+    .section h2{margin-top:0;font-size:1.1rem;color:#1a1a2e}
+    .notice{color:#888;font-style:italic}
+    .node circle{fill:#fff;stroke:#1a1a2e;stroke-width:1.5px;cursor:pointer}
+    .node text{font-size:11px}
+    .link{fill:none;stroke:#ccc;stroke-width:1px}
+    .graph-node{cursor:pointer}
+    .graph-link{stroke:#ccc;stroke-opacity:.6;fill:none}
+  </style>
+</head>
+<body>
+  <h1>__REPO_NAME__</h1>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('tree',this)">File Tree</button>
+    <button class="tab-btn" onclick="switchTab('graph',this)">Import Graph</button>
+  </div>
+  <div id="tree-view" class="view active"><svg id="tree-svg"></svg></div>
+  <div id="graph-view" class="view">
+    <svg id="graph-svg">
+      <defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#999"/>
+      </marker></defs>
+    </svg>
+  </div>
+  <div class="section"><h2>What this project does</h2>__EXPLANATION__</div>
+  <div class="section"><h2>Getting Started</h2>__GETTING_STARTED__</div>
+  <script>
+    const TREE_DATA=__TREE_DATA__;
+    const GRAPH_DATA=__GRAPH_DATA__;
+    function switchTab(n,b){
+      document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      document.getElementById(n+'-view').classList.add('active');
+      if(n==='tree')drawTree();else drawGraph();
+    }
+    function drawTree(){
+      const svg=d3.select('#tree-svg');svg.selectAll('*').remove();
+      const W=svg.node().getBoundingClientRect().width||800,H=600;
+      const m={top:20,right:160,bottom:20,left:40};
+      const g=svg.append('g').attr('transform',`translate(${m.left},${m.top})`);
+      svg.call(d3.zoom().scaleExtent([.1,4]).on('zoom',e=>g.attr('transform',e.transform)));
+      const root=d3.hierarchy(TREE_DATA);
+      root.descendants().forEach(d=>{d._children=d.children||null;});
+      const layout=d3.tree().size([H-m.top-m.bottom,W-m.left-m.right]);
+      function update(){
+        layout(root);
+        g.selectAll('.link').data(root.links(),d=>d.target.data.name+d.depth)
+          .join('path').attr('class','link')
+          .attr('d',d3.linkHorizontal().x(d=>d.y).y(d=>d.x));
+        const node=g.selectAll('.node').data(root.descendants(),d=>d.data.name+d.depth)
+          .join('g').attr('class','node').attr('transform',d=>`translate(${d.y},${d.x})`)
+          .on('click',(e,d)=>{d.children=d.children?null:d._children;update();});
+        node.selectAll('circle').data(d=>[d]).join('circle').attr('r',4);
+        node.selectAll('text').data(d=>[d]).join('text')
+          .attr('dy','.31em').attr('x',d=>d.children||d._children?-8:8)
+          .attr('text-anchor',d=>d.children||d._children?'end':'start')
+          .text(d=>d.data.name);
+      }
+      update();
+    }
+    const LC={python:'#3572A5',javascript:'#f1e05a',typescript:'#2b7489',go:'#00ADD8',java:'#b07219',ruby:'#701516'};
+    function drawGraph(){
+      const svg=d3.select('#graph-svg');
+      svg.selectAll('*:not(defs)').remove();
+      const W=svg.node().getBoundingClientRect().width||800,H=600;
+      if(!GRAPH_DATA.nodes.length){
+        svg.append('text').attr('x',W/2).attr('y',H/2).attr('text-anchor','middle').attr('fill','#888')
+          .text('No import relationships found.');return;
+      }
+      const g=svg.append('g');
+      svg.call(d3.zoom().scaleExtent([.1,4]).on('zoom',e=>g.attr('transform',e.transform)));
+      const nodes=GRAPH_DATA.nodes.map(d=>({...d}));
+      const links=GRAPH_DATA.links.map(d=>({...d}));
+      const sim=d3.forceSimulation(nodes)
+        .force('link',d3.forceLink(links).id(d=>d.id).distance(90))
+        .force('charge',d3.forceManyBody().strength(-250))
+        .force('center',d3.forceCenter(W/2,H/2));
+      const link=g.append('g').selectAll('line').data(links).join('line')
+        .attr('class','graph-link').attr('marker-end','url(#arrow)');
+      const node=g.append('g').selectAll('g').data(nodes).join('g').attr('class','graph-node')
+        .call(d3.drag()
+          .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y;})
+          .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y;})
+          .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}));
+      node.append('circle').attr('r',7).attr('fill',d=>LC[d.language]||'#aaa').attr('stroke','#333').attr('stroke-width',.5);
+      node.append('title').text(d=>d.id);
+      node.append('text').attr('dx',10).attr('dy','.35em').attr('font-size','10px').text(d=>d.id.split('/').pop());
+      sim.on('tick',()=>{
+        link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+        node.attr('transform',d=>`translate(${d.x},${d.y})`);
+      });
+    }
+    drawTree();
+  </script>
+</body>
+</html>"""
+
+
+def render_html(
+    tree_data: dict, graph_data: dict, ai_result: dict, output_path: Path
+) -> None:
+    """Render the complete HTML report file."""
+    explanation = ai_result.get("explanation", "")
+    getting_started = ai_result.get("getting_started", "")
+
+    explanation_html = (
+        f"<p>{html.escape(explanation)}</p>"
+        if explanation
+        else '<p class="notice">AI was not run — no explanation available.</p>'
+    )
+    getting_started_html = (
+        md_to_html(getting_started)
+        if getting_started
+        else '<p class="notice">AI was not run — no getting started guide available.</p>'
+    )
+
+    repo_name = tree_data.get("name", "Repository")
+    content = _HTML_TEMPLATE
+    content = content.replace("__REPO_NAME__", html.escape(repo_name))
+    content = content.replace("__TREE_DATA__", json.dumps(tree_data))
+    content = content.replace("__GRAPH_DATA__", json.dumps(graph_data))
+    content = content.replace("__EXPLANATION__", explanation_html)
+    content = content.replace("__GETTING_STARTED__", getting_started_html)
+    output_path.write_text(content, encoding="utf-8")
 
 
 def write_markdown(explanation: str, getting_started: str, md_path: Path) -> None:
-    raise NotImplementedError
+    """Write explanation and getting_started to a markdown file."""
+    if not explanation and not getting_started:
+        print("Notice: AI content is empty — markdown file not written.", file=sys.stderr)
+        return
+    content = ""
+    if explanation:
+        content += f"## What This Project Does\n\n{explanation}\n\n"
+    if getting_started:
+        content += f"## Getting Started\n\n{getting_started}\n"
+    md_path.write_text(content, encoding="utf-8")
 
 
 @click.command()

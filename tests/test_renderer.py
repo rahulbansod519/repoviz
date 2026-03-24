@@ -51,3 +51,51 @@ def test_md_blank_lines_no_output():
 
 def test_md_empty_string():
     assert md_to_html("") == ""
+
+
+def test_render_html_creates_file(tmp_path):
+    tree = {"name": "test", "children": []}
+    graph = {"nodes": [], "links": []}
+    out = tmp_path / "report.html"
+    render_html(tree, graph, FIXTURE_AI, out)
+    assert out.exists()
+
+
+def test_render_html_contains_tree_json(tmp_path):
+    tree = {"name": "myrepo", "children": []}
+    graph = {"nodes": [], "links": []}
+    out = tmp_path / "report.html"
+    render_html(tree, graph, FIXTURE_AI, out)
+    assert "myrepo" in out.read_text()
+
+
+def test_render_html_contains_explanation(tmp_path):
+    tree = {"name": "test", "children": []}
+    graph = {"nodes": [], "links": []}
+    out = tmp_path / "report.html"
+    render_html(tree, graph, FIXTURE_AI, out)
+    assert "This project is a web server" in out.read_text()
+
+
+def test_render_html_empty_ai_shows_notice(tmp_path):
+    tree = {"name": "test", "children": []}
+    graph = {"nodes": [], "links": []}
+    out = tmp_path / "report.html"
+    render_html(tree, graph, EMPTY_AI, out)
+    assert 'class="notice"' in out.read_text()
+
+
+def test_write_markdown_creates_file(tmp_path):
+    md = tmp_path / "report.md"
+    write_markdown("Explanation.", "1. Step one", md)
+    assert md.exists()
+    content = md.read_text()
+    assert "Explanation." in content
+    assert "Step one" in content
+
+
+def test_write_markdown_skips_when_empty(tmp_path, capsys):
+    md = tmp_path / "report.md"
+    write_markdown("", "", md)
+    assert not md.exists()
+    assert capsys.readouterr().err
