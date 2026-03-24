@@ -157,6 +157,7 @@ def test_cli_no_ai_with_md_skips_markdown(tmp_path):
     ])
     assert result.exit_code == 0
     assert not (tmp_path / "out.md").exists()
+    assert "markdown" in result.output.lower()
 
 
 def test_cli_md_derives_from_output_name(tmp_path):

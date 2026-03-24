@@ -568,17 +568,21 @@ def render_html(
     output_path.write_text(content, encoding="utf-8")
 
 
-def write_markdown(explanation: str, getting_started: str, md_path: Path) -> None:
-    """Write explanation and getting_started to a markdown file."""
+def write_markdown(explanation: str, getting_started: str, md_path: Path) -> bool:
+    """Write explanation and getting_started to a markdown file.
+
+    Returns True if the file was written, False if it was skipped.
+    """
     if not explanation and not getting_started:
         print("Notice: AI content is empty — markdown file not written.", file=sys.stderr)
-        return
+        return False
     content = ""
     if explanation:
         content += f"## What This Project Does\n\n{explanation}\n\n"
     if getting_started:
         content += f"## Getting Started\n\n{getting_started}\n"
     md_path.write_text(content, encoding="utf-8")
+    return True
 
 
 @click.command()
@@ -595,8 +599,6 @@ def main(repo_path: Path, output_path: str | None, write_md: bool, no_ai: bool) 
     else:
         html_path = Path(output_path)
 
-    md_path = html_path.with_suffix(".md") if html_path.suffix else Path(str(html_path) + ".md")
-
     tree_data, graph_files, repo_summary = scan_repo(repo_path)
     graph_data = analyze_imports(graph_files, repo_path)
 
@@ -606,8 +608,9 @@ def main(repo_path: Path, output_path: str | None, write_md: bool, no_ai: bool) 
     click.echo(f"Report written to {html_path}")
 
     if write_md:
-        write_markdown(ai_result["explanation"], ai_result["getting_started"], md_path)
-        if md_path.exists():
+        md_path = html_path.with_suffix(".md") if html_path.suffix else Path(str(html_path) + ".md")
+        wrote = write_markdown(ai_result["explanation"], ai_result["getting_started"], md_path)
+        if wrote:
             click.echo(f"Markdown written to {md_path}")
 
 
