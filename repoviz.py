@@ -24,7 +24,95 @@ MAX_PROMPT_CHARS = 16_000
 
 
 def scan_repo(repo_path: Path) -> tuple[dict, list[Path], dict]:
-    raise NotImplementedError
+    """Walk repo, build tree_data, collect graph_files and repo_summary."""
+    if not (repo_path / ".git").exists():
+        print(
+            "Warning: no .git directory found — treating as a plain directory",
+            file=sys.stderr,
+        )
+
+    all_files: list[Path] = []
+    for path in sorted(repo_path.rglob("*")):
+        if any(part in SKIP_DIRS for part in path.relative_to(repo_path).parts):
+            continue
+        if not path.is_file():
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError as e:
+            print(
+                f"Warning: skipping {path.relative_to(repo_path)} — {type(e).__name__}",
+                file=sys.stderr,
+            )
+            continue
+        if size > MAX_FILE_SIZE:
+            print(
+                f"Warning: skipping {path.relative_to(repo_path)} — file exceeds 1MB",
+                file=sys.stderr,
+            )
+            continue
+        all_files.append(path)
+
+    tree_data = _build_tree(repo_path, all_files)
+    graph_files = [f for f in all_files if f.suffix in LANG_EXTENSIONS]
+    repo_summary = _build_summary(repo_path, all_files, graph_files)
+    return tree_data, graph_files, repo_summary
+
+
+def _build_tree(repo_path: Path, files: list[Path]) -> dict:
+    root: dict = {"name": repo_path.name, "children": []}
+
+    def get_or_create_dir(node: dict, name: str) -> dict:
+        for child in node["children"]:
+            if child["name"] == name and "children" in child:
+                return child
+        new_dir: dict = {"name": name, "children": []}
+        node["children"].append(new_dir)
+        return new_dir
+
+    for file_path in files:
+        rel = file_path.relative_to(repo_path)
+        parts = rel.parts
+        current = root
+        for part in parts[:-1]:
+            current = get_or_create_dir(current, part)
+        current["children"].append({"name": parts[-1], "size": file_path.stat().st_size})
+
+    return root
+
+
+def _build_summary(repo_path: Path, all_files: list[Path], graph_files: list[Path]) -> dict:
+    lang_counts: dict[str, int] = {}
+    for f in graph_files:
+        lang = LANG_EXTENSIONS[f.suffix]
+        lang_counts[lang] = lang_counts.get(lang, 0) + 1
+
+    top_dirs = sorted({
+        f.relative_to(repo_path).parts[0]
+        for f in all_files
+        if len(f.relative_to(repo_path).parts) > 1
+    })
+
+    file_list = [str(f.relative_to(repo_path)) for f in graph_files]
+
+    readme_excerpt = ""
+    for name in ("README.md", "README.rst", "README.txt", "README"):
+        readme_path = repo_path / name
+        if readme_path.exists():
+            try:
+                readme_excerpt = readme_path.read_text(encoding="utf-8")[:2000]
+            except (OSError, UnicodeDecodeError) as e:
+                print(f"Warning: skipping {name} — {type(e).__name__}", file=sys.stderr)
+            break
+
+    return {
+        "repo_name": repo_path.name,
+        "language_breakdown": lang_counts,
+        "top_dirs": top_dirs,
+        "file_count": len(graph_files),
+        "file_list": file_list,
+        "readme_excerpt": readme_excerpt,
+    }
 
 
 def analyze_imports(graph_files: list[Path], repo_root: Path) -> dict:
