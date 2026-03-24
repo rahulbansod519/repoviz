@@ -289,12 +289,84 @@ def _ruby_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
     return results
 
 
+_SYSTEM_PROMPT = (
+    "You are a technical writer. Given a summary of a software repository, "
+    "return a JSON object with exactly two fields:\n"
+    '- "explanation": a 2-3 sentence plain-English description of what the project does and who it is for.\n'
+    '- "getting_started": a step-by-step markdown guide (numbered list) for a new contributor '
+    "to install dependencies and run the project locally.\n"
+    "Return only valid JSON. Do not include markdown code fences around the JSON."
+)
+
+
 def _build_openai_prompt(summary: dict) -> str:
-    raise NotImplementedError
+    """Build OpenAI user message, truncating to stay under MAX_PROMPT_CHARS."""
+    file_list = list(summary.get("file_list", []))
+    top_dirs = list(summary.get("top_dirs", []))
+    readme = summary.get("readme_excerpt", "")
+
+    def build(fl: list, td: list, re_text: str) -> str:
+        fl_str = "\n".join(fl) if fl else "(none)"
+        td_str = ", ".join(str(d) for d in td) if td else "(none)"
+        return (
+            f"Repository: {summary['repo_name']}\n"
+            f"Languages: {summary.get('language_breakdown', {})}\n"
+            f"Top-level directories: {td_str}\n"
+            f"File count: {summary.get('file_count', 0)}\n"
+            f"Files:\n{fl_str}\n"
+            f"README (excerpt):\n{re_text}"
+        )
+
+    for fl in (file_list, file_list[:100], file_list[:50], []):
+        prompt = build(fl, top_dirs, readme)
+        if len(prompt) <= MAX_PROMPT_CHARS:
+            return prompt
+
+    prompt = build([], [], readme)
+    if len(prompt) <= MAX_PROMPT_CHARS:
+        return prompt
+
+    prompt = build([], [], readme[:500])
+    if len(prompt) <= MAX_PROMPT_CHARS:
+        return prompt
+
+    return build([], [], "")
 
 
 def call_openai(repo_summary: dict) -> dict:
-    raise NotImplementedError
+    """Call OpenAI gpt-4o for explanation and getting_started."""
+    empty: dict = {"explanation": "", "getting_started": ""}
+    client = OpenAI()
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": _build_openai_prompt(repo_summary)},
+            ],
+        )
+    except OpenAIError as e:
+        print(f"Warning: OpenAI API call failed — {e}", file=sys.stderr)
+        return empty
+
+    try:
+        data = json.loads(response.choices[0].message.content)
+    except (json.JSONDecodeError, IndexError) as e:
+        print(f"Warning: failed to parse OpenAI response — {e}", file=sys.stderr)
+        return empty
+
+    result: dict = {}
+    for key in ("explanation", "getting_started"):
+        val = data.get(key)
+        if isinstance(val, str) and val.strip():
+            result[key] = val
+        else:
+            print(f"Warning: OpenAI response missing expected key: {key}", file=sys.stderr)
+            result[key] = ""
+
+    return result
 
 
 def md_to_html(text: str) -> str:

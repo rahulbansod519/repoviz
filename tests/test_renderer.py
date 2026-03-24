@@ -99,3 +99,43 @@ def test_write_markdown_skips_when_empty(tmp_path, capsys):
     write_markdown("", "", md)
     assert not md.exists()
     assert capsys.readouterr().err
+
+
+def test_call_openai_returns_empty_on_api_error(capsys):
+    from openai import OpenAIError
+    summary = {
+        "repo_name": "test", "language_breakdown": {}, "top_dirs": [],
+        "file_count": 0, "file_list": [], "readme_excerpt": "",
+    }
+    with patch("repoviz.OpenAI") as mock_cls:
+        mock_cls.return_value.chat.completions.create.side_effect = OpenAIError("fail")
+        result = call_openai(summary)
+    assert result == {"explanation": "", "getting_started": ""}
+    assert capsys.readouterr().err
+
+
+def test_call_openai_partial_recovery(capsys):
+    summary = {
+        "repo_name": "test", "language_breakdown": {}, "top_dirs": [],
+        "file_count": 0, "file_list": [], "readme_excerpt": "",
+    }
+    mock_resp = MagicMock()
+    mock_resp.choices[0].message.content = '{"explanation": "Hello.", "getting_started": ""}'
+    with patch("repoviz.OpenAI") as mock_cls:
+        mock_cls.return_value.chat.completions.create.return_value = mock_resp
+        result = call_openai(summary)
+    assert result["explanation"] == "Hello."
+    assert result["getting_started"] == ""
+    assert "getting_started" in capsys.readouterr().err
+
+
+def test_build_openai_prompt_truncates():
+    from repoviz import _build_openai_prompt
+    summary = {
+        "repo_name": "big", "language_breakdown": {"python": 200},
+        "top_dirs": ["src"], "file_count": 200,
+        "file_list": [f"src/f{i}.py" for i in range(300)],
+        "readme_excerpt": "x" * 3000,
+    }
+    prompt = _build_openai_prompt(summary)
+    assert len(prompt) <= 16_500
