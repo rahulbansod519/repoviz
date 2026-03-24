@@ -588,7 +588,27 @@ def write_markdown(explanation: str, getting_started: str, md_path: Path) -> Non
 @click.option("--no-ai", "no_ai", is_flag=True, default=False, help="Skip OpenAI, diagram only")
 def main(repo_path: Path, output_path: str | None, write_md: bool, no_ai: bool) -> None:
     """Generate a visual architecture diagram and explanation for a Git repository."""
-    raise NotImplementedError
+    repo_path = repo_path.resolve()
+
+    if output_path is None:
+        html_path = Path(f"{repo_path.name}-report.html")
+    else:
+        html_path = Path(output_path)
+
+    md_path = html_path.with_suffix(".md") if html_path.suffix else Path(str(html_path) + ".md")
+
+    tree_data, graph_files, repo_summary = scan_repo(repo_path)
+    graph_data = analyze_imports(graph_files, repo_path)
+
+    ai_result = {"explanation": "", "getting_started": ""} if no_ai else call_openai(repo_summary)
+
+    render_html(tree_data, graph_data, ai_result, html_path)
+    click.echo(f"Report written to {html_path}")
+
+    if write_md:
+        write_markdown(ai_result["explanation"], ai_result["getting_started"], md_path)
+        if md_path.exists():
+            click.echo(f"Markdown written to {md_path}")
 
 
 if __name__ == "__main__":

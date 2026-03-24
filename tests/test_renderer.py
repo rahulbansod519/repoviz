@@ -139,3 +139,33 @@ def test_build_openai_prompt_truncates():
     }
     prompt = _build_openai_prompt(summary)
     assert len(prompt) <= 16_500
+
+
+def test_cli_no_ai_creates_html(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(main, [
+        str(FIXTURES / "simple_python"), "--no-ai", "-o", str(tmp_path / "out.html"),
+    ])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "out.html").exists()
+
+
+def test_cli_no_ai_with_md_skips_markdown(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(main, [
+        str(FIXTURES / "simple_python"), "--no-ai", "--md", "-o", str(tmp_path / "out.html"),
+    ])
+    assert result.exit_code == 0
+    assert not (tmp_path / "out.md").exists()
+
+
+def test_cli_md_derives_from_output_name(tmp_path):
+    runner = CliRunner()
+    # Patch call_openai to avoid real API call
+    with patch("repoviz.call_openai", return_value=FIXTURE_AI):
+        result = runner.invoke(main, [
+            str(FIXTURES / "simple_python"), "--md", "-o", str(tmp_path / "my-report.html"),
+        ])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "my-report.html").exists()
+    assert (tmp_path / "my-report.md").exists()
