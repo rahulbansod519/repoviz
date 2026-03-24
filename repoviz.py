@@ -183,23 +183,110 @@ def _python_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
 
 
 def _js_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
-    raise NotImplementedError
+    results = []
+    pattern = r"""(?:import\s+[^;]+?\s+from|require\s*\()\s*['"](\.[^'"]+)['"]"""
+    for m in re.finditer(pattern, source):
+        spec = m.group(1)
+        base = file_path.parent
+        candidate = (base / spec).resolve()
+        for p in (candidate, candidate.with_suffix(".js"), candidate.with_suffix(".ts")):
+            if p.is_file():
+                try:
+                    results.append(str(p.relative_to(repo_root)))
+                except ValueError:
+                    pass
+                break
+    return results
 
 
 def _go_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
-    raise NotImplementedError
+    go_mod = repo_root / "go.mod"
+    module_prefix = ""
+    if go_mod.exists():
+        try:
+            for line in go_mod.read_text(encoding="utf-8").splitlines():
+                m = re.match(r"^module\s+(\S+)", line)
+                if m:
+                    module_prefix = m.group(1)
+                    break
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    if not module_prefix:
+        return []
+
+    all_imports: list[str] = []
+    all_imports += re.findall(r'^\s*import\s+"([^"]+)"', source, re.MULTILINE)
+    block = re.search(r"import\s*\(([^)]+)\)", source, re.DOTALL)
+    if block:
+        all_imports += re.findall(r'"([^"]+)"', block.group(1))
+
+    results = []
+    for imp in all_imports:
+        if not imp.startswith(module_prefix):
+            continue
+        rel_pkg = imp[len(module_prefix):].lstrip("/")
+        pkg_dir = repo_root / rel_pkg
+        if pkg_dir.is_dir():
+            go_files = sorted(pkg_dir.glob("*.go"))
+            if go_files:
+                results.append(str(go_files[0].relative_to(repo_root)))
+    return results
 
 
 def _detect_java_root_package(repo_root: Path) -> str:
-    raise NotImplementedError
+    for java_file in sorted(repo_root.rglob("*.java")):
+        if any(part in SKIP_DIRS for part in java_file.relative_to(repo_root).parts):
+            continue
+        try:
+            for line in java_file.read_text(encoding="utf-8").splitlines():
+                m = re.match(r"^\s*package\s+([\w.]+)\s*;", line)
+                if m:
+                    parts = m.group(1).split(".")
+                    return ".".join(parts[:3])
+        except (OSError, UnicodeDecodeError):
+            continue
+    return ""
 
 
 def _java_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
-    raise NotImplementedError
+    root_pkg = _detect_java_root_package(repo_root)
+    if not root_pkg:
+        return []
+    results = []
+    for m in re.finditer(r"^\s*import\s+([\w.]+);", source, re.MULTILINE):
+        fqn = m.group(1)
+        if not fqn.startswith(root_pkg):
+            continue
+        candidate = repo_root / (fqn.replace(".", "/") + ".java")
+        if candidate.exists():
+            results.append(str(candidate.relative_to(repo_root)))
+    return results
 
 
 def _ruby_imports(file_path: Path, source: str, repo_root: Path) -> list[str]:
-    raise NotImplementedError
+    results = []
+    # require_relative 'X' — always intra-repo, relative to current file
+    for m in re.finditer(r"""require_relative\s+['"]([^'"]+)['"]""", source):
+        spec = m.group(1)
+        base = file_path.parent
+        for candidate in ((base / spec).with_suffix(".rb"), base / spec):
+            if candidate.is_file():
+                try:
+                    results.append(str(candidate.relative_to(repo_root)))
+                except ValueError:
+                    pass
+                break
+    # require 'X' — intra-repo only if repo_root/X.rb exists
+    for m in re.finditer(r"""require\s+['"]([^'"]+)['"]""", source):
+        spec = m.group(1)
+        candidate = repo_root / (spec + ".rb")
+        if candidate.is_file():
+            try:
+                results.append(str(candidate.relative_to(repo_root)))
+            except ValueError:
+                pass
+    return results
 
 
 def _build_openai_prompt(summary: dict) -> str:
